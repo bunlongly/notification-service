@@ -26,6 +26,10 @@ class CookieSession:
             url = "https://www.airbnb.com/login"
         elif channel == "rakuten":
             url = "https://manage.travel.rakuten.co.jp/portal/inn/mp_kanri.main?f_lang=J&f_t_flg=heya&f_flg=RTN"
+        elif channel == "suitebook":
+            url = "https://app.suitebook.dev/host/sign-in"
+        elif channel == "aos":
+            url = "https://app.suitebook.click/"
 
         print(f"[DEBUG] Channel: {channel}, URL: {url}")
 
@@ -40,6 +44,12 @@ class CookieSession:
             credential_name=credential_name,
             password=password,
         )
+        # return CookieSession.start_session(
+        #     browser="Firefox",
+        #     channel="suitebook",
+        #     credential_name="test_user",
+        #     password="test_password",
+        # )
 
     def get_session(browser, channel, credential_name, url, password):
         driver_object = WebDriverInitiator(browser, url, headless=False)
@@ -65,11 +75,11 @@ class CookieSession:
         else:
             return CookieSession.login(driver, channel, credential_name, password)
 
-    def login(driver, channel, credential_name, password):
+    def login(driver, channel, credential_name, password, reservation_id=None):
         if channel == "agoda":
             print(f"{channel} {credential_name} login in progress ...")
             try:
-                # Wait for and switch to the iframe
+
                 from selenium.webdriver.support.ui import WebDriverWait
                 from selenium.webdriver.support import expected_conditions as EC
 
@@ -106,6 +116,7 @@ class CookieSession:
                 raise
 
         elif channel == "airbnb":
+            reservation_id = "HMNZY5AYSS"
             print(f"Airbnb {credential_name} login in progress ...")
             time.sleep(3)
 
@@ -135,6 +146,14 @@ class CookieSession:
             print(f"Airbnb {credential_name} login successfunlly ...")
             time.sleep(3)
 
+            # Navigate to hosting messages page
+            hosting_messages_url = (
+                f"https://www.airbnb.com/hosting/messages?query={reservation_id}"
+            )
+            driver.get(hosting_messages_url)
+            print("Navigated to Airbnb hosting messages page.")
+            time.sleep(5)
+
             return CookieSession.save_session(
                 driver, channel=channel, credential_name=credential_name
             )
@@ -156,6 +175,58 @@ class CookieSession:
             return CookieSession.save_session(
                 driver, channel=channel, credential_name=credential_name
             )
+
+        elif channel == "suitebook":
+            print(f"Suitebook {credential_name} login in progress ...")
+            time.sleep(3)
+
+            email_input = driver.find_element(By.CSS_SELECTOR, "[name='email']")
+            password_input = driver.find_element(By.CSS_SELECTOR, "[name='password']")
+
+            email_input.send_keys(credential_name)
+            password_input.send_keys(password)
+
+            login_button = driver.find_element(By.XPATH, "//button[@type='submit']")
+            login_button.click()
+
+            time.sleep(2)
+            print(f"Suitebook {credential_name} login successfully ...")
+
+            session_data = CookieSession.save_session(
+                driver, channel=channel, credential_name=credential_name
+            )
+            session = CookieSession()
+            session.fetch_property_data_from_api(driver)
+
+            return session_data
+
+        elif channel == "aos":
+            print(f"AOS {credential_name} login in progress ...")
+            time.sleep(3)
+
+            username_input = driver.find_element(By.ID, "id_username")
+            password_input = driver.find_element(By.ID, "id_password")
+
+            username_input.send_keys(credential_name)
+            password_input.send_keys(password)
+
+            login_button = driver.find_element(
+                By.CSS_SELECTOR, "input.btn.btn-lg.btn-primary.btn-block"
+            )
+            login_button.click()
+
+            #
+            time.sleep(2)
+            print(f"AOS {credential_name} login successfully ...")
+
+            # Save the session for AOS using CookieSession
+            session_data = CookieSession.save_session(
+                driver, channel=channel, credential_name=credential_name
+            )
+            session = CookieSession()
+            # session.fetch_property_data_from_suitebook(driver)
+
+            return session_data
 
     def save_session(driver, channel, credential_name):
         cookies = driver.get_cookies()
@@ -202,11 +273,11 @@ class CookieSession:
 
     def get_cookies_as_json_file(channel, credential_name):
         try:
-            # Retrieve cookies as JSON object
+
             cookie_data = CookieSession.get_cookies_as_json(
                 channel=channel, credential_name=credential_name
             )
-            # Log the JSON object for debugging
+
             print(
                 f"[DEBUG] Cookie data for {channel} - {credential_name}: {cookie_data}"
             )
@@ -219,6 +290,34 @@ class CookieSession:
                 f"[ERROR] Failed to generate JSON file for {channel} - {credential_name}: {e}"
             )
             raise
+
+    def call_api(self, cookies):
+
+        api_url = "https://app.suitebook.dev/api/reservations/tags/?type=reservation"
+
+        # api_url = "https://app.suitebook.dev/api/reservations/tags/?type=reservation"
+
+        cookie_dict = {cookie["name"]: cookie["value"] for cookie in cookies}
+
+        response = requests.get(api_url, cookies=cookie_dict)
+
+        if response.status_code == 200:
+            print("API Call successful!")
+            return response.json()
+        else:
+            print(f"API Call failed with status code: {response.status_code}")
+        return None
+
+    def fetch_property_data_from_api(self, driver):
+
+        cookies = driver.get_cookies()
+
+        api_data = self.call_api(cookies)
+
+        if api_data:
+            print("API Data:", api_data)
+        else:
+            print("Failed to fetch API data.")
 
     def generate_sessions(output_file="all_sessions.json"):
         try:
@@ -294,6 +393,10 @@ class CookieSession:
                             channel = "agoda"
                         elif "rakuten.co.jp" in website:
                             channel = "rakuten"
+                        elif "suitebook.dev" in website:
+                            channel = "suitebook"
+                        elif "suitebook.click" in website:
+                            channel = "aos"
 
                     # Skip if any required field is missing
                     if not username or not password or not website or not channel:
@@ -355,19 +458,18 @@ class CookieSession:
             raise
 
     def fetch_profile_sessions(file_path="all_sessions.json"):
+        reservation_id = "HMNZY5AYSS"
         try:
-            # Construct the full path for the file
+
             full_path = os.path.join(settings.BASE_DIR, "web_cookies", file_path)
             if not os.path.exists(full_path):
                 raise FileNotFoundError(f"File not found: {full_path}")
 
-            # Load profiles from the file
             with open(full_path, "r") as file:
                 profiles = json.load(file)
 
             formatted_profiles = {}
 
-            # Process each channel and its sessions
             for channel, sessions in profiles.items():
                 for session in sessions:
                     credential_name = session.get("credential_name")
@@ -378,19 +480,22 @@ class CookieSession:
                         else ""
                     )
 
-                    # Default metadata values
-                    ota_platform, favicon_url, static_url, domain = (
+                    (
+                        ota_platform,
+                        favicon_url,
+                        static_url,
+                        domain,
+                    ) = (
                         None,
                         None,
                         None,
                         None,
                     )
 
-                    # Determine channel and metadata based on notes
                     if notes and "airbnb" in notes.lower():
                         ota_platform = "airbnb"
                         favicon_url = "https://a0.muscache.com/airbnb/static/logotype_favicon-21cc8e6c6a2cca43f061d2dcabdf6e58.ico"
-                        static_url = "https://www.airbnb.com/hosting/messages"
+                        static_url = f"https://www.airbnb.com/hosting/messages?query={reservation_id}"
                         domain = "https://www.airbnb.com"
                     elif notes and "agoda" in notes.lower():
                         ota_platform = "agoda"
@@ -410,7 +515,7 @@ class CookieSession:
                     ):
                         ota_platform = "airbnb"
                         favicon_url = "https://a0.muscache.com/airbnb/static/logotype_favicon-21cc8e6c6a2cca43f061d2dcabdf6e58.ico"
-                        static_url = "https://www.airbnb.com/hosting/messages"
+                        static_url = f"https://www.airbnb.com/hosting/messages?query={reservation_id}"
                         domain = "https://www.airbnb.com"
                     elif cookies and any(
                         "agoda.com" in c.get("domain", "") for c in cookies
@@ -469,104 +574,3 @@ class CookieSession:
             return {
                 "error": "An unexpected error occurred. Please check the logs for more details."
             }
-
-    def generate_sessions_from_json(
-        output_file="all_sessions.json", props_file="props.json"
-    ):
-        try:
-            # Define paths for web cookies and props.json
-            web_cookies_path = os.path.join(settings.BASE_DIR, "web_cookies")
-            props_file_path = os.path.join(settings.BASE_DIR, props_file)
-            os.makedirs(web_cookies_path, exist_ok=True)
-            output_file_path = os.path.join(web_cookies_path, output_file)
-
-            print(f"[DEBUG] Output file path: {output_file_path}")
-
-            # Load properties from props.json
-            with open(props_file_path, "r") as props_file:
-                props_data = json.load(props_file)
-
-            # Hardcoded credentials for simplicity (can be replaced later)
-            ota_credentials = {
-                "airbnb": {
-                    "username": "guest-haneda-airport@minn.asia",
-                    "password": "hpy2raq4ubq6pam-MVX",
-                },
-                "rakuten": {
-                    "username": "theatelh",
-                    "password": "theatel.12",
-                },
-                "agoda": {
-                    "username": "guest-kamata@minn.asia",
-                    "password": "Squeeze0901",
-                },
-            }
-
-            all_sessions = {}
-            detailed_results = []
-
-            # Iterate over properties and their OTAs
-            for property_item in props_data["properties"]:
-                property_name = property_item["name"]
-                otas = property_item["otas"]
-
-                for ota in otas:
-                    if ota not in ota_credentials:
-                        print(f"[WARNING] No credentials found for OTA: {ota}")
-                        continue
-
-                    credentials = ota_credentials[ota]
-                    result = {
-                        "channel": ota,
-                        "property_name": property_name,
-                        "credential_name": credentials["username"],
-                        "status": "failed",
-                        "message": None,
-                    }
-
-                    try:
-                        print(f"Processing OTA: {ota} for property: {property_name}")
-
-                        # Generate session using CookieSession
-                        profile = CookieSession.start_session(
-                            browser="Firefox",
-                            channel=ota,
-                            credential_name=credentials["username"],
-                            password=credentials["password"],
-                        )
-
-                        if profile:
-                            print(f"[DEBUG] Profile generated for {ota}: {profile}")
-
-                            if ota not in all_sessions:
-                                all_sessions[ota] = []
-                            all_sessions[ota].append(profile)
-
-                            result["status"] = "success"
-                            result["message"] = (
-                                f"Session generated successfully for {ota}"
-                            )
-                        else:
-                            print(f"[DEBUG] No profile returned for {ota}")
-
-                    except Exception as e:
-                        result["message"] = f"Error: {str(e)}"
-                        print(f"[ERROR] {result['message']}")
-
-                    detailed_results.append(result)
-
-            # Save sessions to file
-            if all_sessions:
-                CookieSession.save_all_sessions_to_file(all_sessions, output_file_path)
-                print(f"[DEBUG] All sessions saved to {output_file_path}")
-            else:
-                print("[DEBUG] No sessions to save.")
-
-            return {
-                "message": "Sessions generated successfully.",
-                "sessions": detailed_results,
-            }
-
-        except Exception as e:
-            print(f"[ERROR] An error occurred: {e}")
-            raise
